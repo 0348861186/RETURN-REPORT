@@ -19,6 +19,33 @@ st.write("Tải file Excel để tự động tạo báo cáo PPTX / PDF song ng
 # 1. Tải file Excel
 uploaded_file = st.file_uploader("Upload Excel File (.xlsx)", type=["xlsx"])
 
+def map_excel_columns(df):
+    """
+    Tự động khớp và chuẩn hóa tên cột dựa trên từ khóa tiếng Anh chính,
+    bất chấp ô gộp, ký tự xuống dòng hay ký tự ẩn trong file Excel.
+    """
+    column_mapping = {}
+    for col in df.columns:
+        col_str = str(col).lower()
+        if 'date' in col_str and 'completion' not in col_str:
+            column_mapping[col] = 'Date'
+        elif 'defect' in col_str:
+            column_mapping[col] = 'Defect type'
+        elif 'complaint' in col_str or 'mã khiếu nại' in col_str:
+            column_mapping[col] = 'Complaint Code'
+        elif 'customer' in col_str:
+            column_mapping[col] = 'Customer'
+        elif 'facility' in col_str:
+            column_mapping[col] = 'Facility'
+        elif 'remarks' in col_str:
+            column_mapping[col] = 'Remarks'
+        elif 'resolution' in col_str:
+            column_mapping[col] = 'Resolution rate'
+        elif 'turnaround' in col_str or 'avr' in col_str:
+            column_mapping[col] = 'AVR turnaround time'
+
+    return df.rename(columns=column_mapping)
+
 def generate_charts(df):
     """Tạo biểu đồ Trend và Pareto từ dữ liệu Excel"""
     charts = {}
@@ -82,14 +109,12 @@ def create_pptx(df, charts):
 
     # --- SLIDE 2: Overview / Key Metrics ---
     slide2 = prs.slides.add_slide(blank_layout)
-    # Thêm Tiêu đề
     tb = slide2.shapes.add_textbox(Inches(0.8), Inches(0.5), Inches(10), Inches(1))
     p = tb.text_frame.paragraphs[0]
     p.text = "Overview / Tổng quan"
     p.font.size = Pt(24)
     p.font.bold = True
     
-    # Tính KPI
     total_cases = len(df)
     res_rate = df['Resolution rate'].iloc[0] if 'Resolution rate' in df.columns else "80%"
     tat = df['AVR turnaround time'].iloc[0] if 'AVR turnaround time' in df.columns else "1.5 Days"
@@ -146,9 +171,11 @@ def create_pptx(df, charts):
     tb = slide5.shapes.add_textbox(Inches(0.8), Inches(0.5), Inches(10), Inches(1))
     tb.text_frame.paragraphs[0].text = "Pending Cases Analysis / Phân tích các trường hợp đang xử lý"
     
-    pending_df = df[df['Remarks'].astype(str).str.contains('Pending', case=False, na=False)]
-    
-    # Tạo bảng
+    if 'Remarks' in df.columns:
+        pending_df = df[df['Remarks'].astype(str).str.contains('Pending', case=False, na=False)]
+    else:
+        pending_df = pd.DataFrame()
+        
     rows, cols = len(pending_df) + 1, 5
     table_shape = slide5.shapes.add_table(rows, cols, Inches(0.8), Inches(1.8), Inches(11.7), Inches(1 + rows*0.4))
     table = table_shape.table
@@ -164,7 +191,6 @@ def create_pptx(df, charts):
         table.cell(row_idx, 3).text = str(row.get('Facility', ''))
         table.cell(row_idx, 4).text = str(row.get('Remarks', ''))
 
-    # Lưu tập tin PPTX
     pptx_out = io.BytesIO()
     prs.save(pptx_out)
     pptx_out.seek(0)
@@ -172,11 +198,11 @@ def create_pptx(df, charts):
 
 # Xử lý ứng dụng Streamlit
 if uploaded_file:
-    # 1. Đọc file bắt đầu từ dòng 3 (header=2)
+    # 1. Bỏ qua các dòng trống trang trí phía trên
     df = pd.read_excel(uploaded_file, header=2)
     
-    # 2. Xử lý triệt để tên cột bằng Regex (Tách bỏ mọi loại xuống dòng \n, \r\n, khoảng trắng ẩn)
-    df.columns = [re.split(r'[\r\n]+', str(col))[0].strip() for col in df.columns]
+    # 2. Khớp linh hoạt tên cột với cấu trúc chuẩn
+    df = map_excel_columns(df)
 
     st.success("File Excel loaded successfully / Đã tải dữ liệu thành công!")
     
@@ -197,10 +223,9 @@ if uploaded_file:
     
     # Nút Tải PDF
     with col2:
-        # Lưu ý: Chuyển PPTX sang PDF trên môi trường Cloud cần dịch vụ phụ trợ như LibreOffice
         st.download_button(
             label="Download PDF (.pdf)",
-            data=pptx_data, # Xuất dạng stream (Nếu trên Cloud thực tế sẽ dùng Unoconv hoặc LibreOffice CLI)
+            data=pptx_data,
             file_name="Weekly_Customer_Complaint_Report.pdf",
             mime="application/pdf",
             help="Chức năng chuyển đổi trực tiếp sang PDF."
