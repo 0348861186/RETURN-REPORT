@@ -19,32 +19,54 @@ st.write("Tải file Excel để tự động tạo báo cáo PPTX / PDF song ng
 # 1. Tải file Excel
 uploaded_file = st.file_uploader("Upload Excel File (.xlsx)", type=["xlsx"])
 
-def map_excel_columns(df):
+def load_and_clean_excel(file):
     """
-    Tự động khớp và chuẩn hóa tên cột dựa trên từ khóa tiếng Anh chính,
-    bất chấp ô gộp, ký tự xuống dòng hay ký tự ẩn trong file Excel.
+    Tự động dò tìm dòng header chứa dữ liệu thực sự trong 10 dòng đầu tiên
+    và chuẩn hóa các tên cột quan trọng.
     """
+    # Đọc thử 10 dòng đầu không header để quét vị trí
+    preview_df = pd.read_excel(file, nrows=10, header=None)
+    
+    header_idx = 0
+    for idx, row in preview_df.iterrows():
+        row_str = " ".join(row.dropna().astype(str)).lower()
+        if 'date' in row_str or 'nguồn' in row_str or 'ngày' in row_str:
+            header_idx = idx
+            break
+            
+    # Đọc lại file với đúng dòng header tìm được
+    file.seek(0)
+    df = pd.read_excel(file, header=header_idx)
+    
+    # Mapping tên cột dựa trên từ khóa linh hoạt
     column_mapping = {}
     for col in df.columns:
         col_str = str(col).lower()
-        if 'date' in col_str and 'completion' not in col_str:
-            column_mapping[col] = 'Date'
-        elif 'defect' in col_str:
+        if 'date' in col_str or 'ngày' in col_str:
+            if 'completion' not in col_str and 'hoàn thành' not in col_str:
+                column_mapping[col] = 'Date'
+        elif 'defect' in col_str or 'phân loại lỗi' in col_str or 'loại lỗi' in col_str:
             column_mapping[col] = 'Defect type'
         elif 'complaint' in col_str or 'mã khiếu nại' in col_str:
             column_mapping[col] = 'Complaint Code'
-        elif 'customer' in col_str:
+        elif 'customer' in col_str or 'khách hàng' in col_str:
             column_mapping[col] = 'Customer'
-        elif 'facility' in col_str:
+        elif 'facility' in col_str or 'bộ phận' in col_str:
             column_mapping[col] = 'Facility'
-        elif 'remarks' in col_str:
+        elif 'remark' in col_str or 'trạng thái' in col_str or 'ghi chú' in col_str:
             column_mapping[col] = 'Remarks'
-        elif 'resolution' in col_str:
+        elif 'resolution' in col_str or 'tỷ lệ' in col_str:
             column_mapping[col] = 'Resolution rate'
-        elif 'turnaround' in col_str or 'avr' in col_str:
+        elif 'turnaround' in col_str or 'avr' in col_str or 'thời gian' in col_str:
             column_mapping[col] = 'AVR turnaround time'
 
-    return df.rename(columns=column_mapping)
+    df = df.rename(columns=column_mapping)
+    
+    # Fallback an toàn: Nếu vẫn không tìm thấy 'Date', lấy cột đầu tiên chứa dữ liệu dạng datetime/chuỗi
+    if 'Date' not in df.columns and len(df.columns) > 0:
+        df.rename(columns={df.columns[0]: 'Date'}, inplace=True)
+        
+    return df
 
 def generate_charts(df):
     """Tạo biểu đồ Trend và Pareto từ dữ liệu Excel"""
@@ -56,9 +78,12 @@ def generate_charts(df):
     df['Date'] = pd.to_datetime(df['Date'], errors='coerce')
     df_clean = df.dropna(subset=['Date'])
     
-    weekly_counts = df_clean.groupby(df_clean['Date'].dt.isocalendar().week).size()
-    
-    ax.plot([f"W{w}" for w in weekly_counts.index], weekly_counts.values, marker='o', color='#1e3d59', linewidth=2)
+    if not df_clean.empty:
+        weekly_counts = df_clean.groupby(df_clean['Date'].dt.isocalendar().week).size()
+        ax.plot([f"W{w}" for w in weekly_counts.index], weekly_counts.values, marker='o', color='#1e3d59', linewidth=2)
+    else:
+        ax.text(0.5, 0.5, 'No Valid Date Data', horizontalalignment='center', verticalalignment='center')
+        
     ax.set_title("Weekly Complaint Trend", fontsize=10)
     plt.tight_layout()
     
@@ -70,9 +95,11 @@ def generate_charts(df):
 
     # Biểu đồ Defect Category Pareto (Slide 3 & 4)
     fig, ax = plt.subplots(figsize=(5, 3))
-    defect_counts = df['Defect type'].value_counts()
     
-    ax.bar(defect_counts.index, defect_counts.values, color='#ff6e40')
+    defect_col = 'Defect type' if 'Defect type' in df.columns else df.columns[1]
+    defect_counts = df[defect_col].value_counts()
+    
+    ax.bar(defect_counts.index.astype(str), defect_counts.values, color='#ff6e40')
     ax.set_title("Defect Category Distribution", fontsize=10)
     plt.xticks(rotation=15, ha='right', fontsize=8)
     plt.tight_layout()
@@ -176,7 +203,7 @@ def create_pptx(df, charts):
     else:
         pending_df = pd.DataFrame()
         
-    rows, cols = len(pending_df) + 1, 5
+    rows, cols = max(len(pending_df) + 1, 2), 5
     table_shape = slide5.shapes.add_table(rows, cols, Inches(0.8), Inches(1.8), Inches(11.7), Inches(1 + rows*0.4))
     table = table_shape.table
     
@@ -198,11 +225,8 @@ def create_pptx(df, charts):
 
 # Xử lý ứng dụng Streamlit
 if uploaded_file:
-    # 1. Bỏ qua các dòng trống trang trí phía trên
-    df = pd.read_excel(uploaded_file, header=2)
-    
-    # 2. Khớp linh hoạt tên cột với cấu trúc chuẩn
-    df = map_excel_columns(df)
+    # Đọc và tự động phát hiện header + chuẩn hóa tên cột
+    df = load_and_clean_excel(uploaded_file)
 
     st.success("File Excel loaded successfully / Đã tải dữ liệu thành công!")
     
