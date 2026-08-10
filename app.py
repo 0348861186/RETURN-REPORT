@@ -1,6 +1,5 @@
 import io
 import os
-import subprocess
 import sys
 import matplotlib.pyplot as plt
 import pandas as pd
@@ -21,322 +20,271 @@ uploaded_file = st.file_uploader("Upload Excel File (.xlsx)", type=["xlsx"])
 
 
 def convert_pptx_to_pdf_bytes(pptx_bytes):
-  """Hàm chuyển đổi dữ liệu PPTX (Bytes) sang PDF (Bytes)"""
-  # Lưu tạm file PPTX ra đĩa để xử lý
-  with open("temp_report.pptx", "wb") as f:
-    f.write(pptx_bytes)
+    """Sử dụng Microsoft PowerPoint trên Windows để chuyển đổi PPTX sang PDF"""
+    abs_pptx = os.path.abspath("temp_report.pptx")
+    abs_pdf = os.path.abspath("temp_report.pdf")
 
-  pdf_bytes = None
+    # Ghi dữ liệu file tạm PPTX
+    with open(abs_pptx, "wb") as f:
+        f.write(pptx_bytes)
 
-  # Trường hợp 1: Chạy trên Windows (dùng Microsoft PowerPoint)
-  if sys.platform == "win32":
-    try:
-      import comtypes.client
+    pdf_bytes = None
 
-      abs_pptx = os.path.abspath("temp_report.pptx")
-      abs_pdf = os.path.abspath("temp_report.pdf")
+    if sys.platform == "win32":
+        try:
+            import comtypes.client
 
-      powerpoint = comtypes.client.CreateObject("Powerpoint.Application")
-      deck = powerpoint.Presentations.Open(abs_pptx, WithWindow=False)
-      deck.SaveAs(abs_pdf, 32)  # 32 = Format PDF
-      deck.Close()
-      powerpoint.Quit()
+            # Khởi chạy PowerPoint ẩn
+            powerpoint = comtypes.client.CreateObject("Powerpoint.Application")
+            deck = powerpoint.Presentations.Open(abs_pptx, WithWindow=False)
+            deck.SaveAs(abs_pdf, 32)  # 32 = Định dạng file PDF
+            deck.Close()
+            powerpoint.Quit()
 
-      with open(abs_pdf, "rb") as f:
-        pdf_bytes = f.read()
+            # Đọc dữ liệu file PDF vừa tạo
+            if os.path.exists(abs_pdf):
+                with open(abs_pdf, "rb") as f:
+                    pdf_bytes = f.read()
+        except Exception as e:
+            st.warning(f"Chưa thể tạo PDF tự động: {e}. Vui lòng đảm bảo máy tính đã cài đặt Microsoft PowerPoint.")
+    else:
+        st.warning("Tính năng xuất PDF trực tiếp hiện chỉ hỗ trợ môi trường Windows có cài PowerPoint.")
 
-      # Dọn dẹp file tạm
-      if os.path.exists(abs_pdf):
+    # Dọn dẹp file tạm trên ổ đĩa
+    if os.path.exists(abs_pptx):
+        os.remove(abs_pptx)
+    if os.path.exists(abs_pdf):
         os.remove(abs_pdf)
-    except Exception as e:
-      st.warning(
-        f"Không thể chuyển đổi PDF qua PowerPoint Local: {e}. Vui lòng tải"
-        " PPTX và lưu dạng PDF."
-      )
 
-  # Trường hợp 2: Chạy trên Linux / Streamlit Cloud (dùng LibreOffice)
-  else:
-    try:
-      subprocess.run(
-        ["soffice", "--headless", "--convert-to", "pdf", "temp_report.pptx"],
-        check=True,
-      )
-      if os.path.exists("temp_report.pdf"):
-        with open("temp_report.pdf", "rb") as f:
-          pdf_bytes = f.read()
-        os.remove("temp_report.pdf")
-    except Exception:
-      st.warning(
-        "Chưa cài đặt LibreOffice trên Server. Không thể tự động tạo PDF."
-      )
-
-  # Dọn dẹp file PPTX tạm
-  if os.path.exists("temp_report.pptx"):
-    os.remove("temp_report.pptx")
-
-  return pdf_bytes
+    return pdf_bytes
 
 
 def generate_charts(df):
-  """Tạo biểu đồ Trend và Pareto từ dữ liệu Excel"""
-  charts = {}
+    """Tạo biểu đồ Trend và Pareto từ dữ liệu Excel"""
+    charts = {}
 
-  # Biểu đồ Trend (Slide 3)
-  fig, ax = plt.subplots(figsize=(5, 3))
-  df["Date"] = pd.to_datetime(df["Date"], errors="coerce")
-  weekly_counts = df.groupby(df["Date"].dt.isocalendar().week).size()
+    # Biểu đồ Trend (Slide 3)
+    fig, ax = plt.subplots(figsize=(5, 3))
+    df["Date"] = pd.to_datetime(df["Date"], errors="coerce")
+    weekly_counts = df.groupby(df["Date"].dt.isocalendar().week).size()
 
-  if not weekly_counts.empty:
-    ax.plot(
-      [f"W{w}" for w in weekly_counts.index],
-      weekly_counts.values,
-      marker="o",
-      color="#1e3d59",
-      linewidth=2,
-    )
-  ax.set_title("Weekly Complaint Trend", fontsize=10)
-  plt.tight_layout()
+    if not weekly_counts.empty:
+        ax.plot(
+            [f"W{w}" for w in weekly_counts.index],
+            weekly_counts.values,
+            marker="o",
+            color="#1e3d59",
+            linewidth=2,
+        )
+    ax.set_title("Weekly Complaint Trend", fontsize=10)
+    plt.tight_layout()
 
-  trend_img = io.BytesIO()
-  plt.savefig(trend_img, format="png", dpi=150)
-  trend_img.seek(0)
-  charts["trend"] = trend_img
-  plt.close()
+    trend_img = io.BytesIO()
+    plt.savefig(trend_img, format="png", dpi=150)
+    trend_img.seek(0)
+    charts["trend"] = trend_img
+    plt.close()
 
-  # Biểu đồ Defect Category Pareto (Slide 3 & 4)
-  fig, ax = plt.subplots(figsize=(5, 3))
-  defect_counts = df["Defect type"].value_counts()
+    # Biểu đồ Defect Category Pareto (Slide 3 & 4)
+    fig, ax = plt.subplots(figsize=(5, 3))
+    defect_counts = df["Defect type"].value_counts()
 
-  ax.bar(defect_counts.index, defect_counts.values, color="#ff6e40")
-  ax.set_title("Defect Category Distribution", fontsize=10)
-  plt.xticks(rotation=15, ha="right", fontsize=8)
-  plt.tight_layout()
+    ax.bar(defect_counts.index, defect_counts.values, color="#ff6e40")
+    ax.set_title("Defect Category Distribution", fontsize=10)
+    plt.xticks(rotation=15, ha="right", fontsize=8)
+    plt.tight_layout()
 
-  defect_img = io.BytesIO()
-  plt.savefig(defect_img, format="png", dpi=150)
-  defect_img.seek(0)
-  charts["defect"] = defect_img
-  plt.close()
+    defect_img = io.BytesIO()
+    plt.savefig(defect_img, format="png", dpi=150)
+    defect_img.seek(0)
+    charts["defect"] = defect_img
+    plt.close()
 
-  return charts
+    return charts
 
 
 def create_pptx(df, charts):
-  """Tạo Presentation 5 slide song ngữ"""
-  prs = Presentation()
-  prs.slide_width = Inches(13.33)
-  prs.slide_height = Inches(7.5)
-  blank_layout = prs.slide_layouts[6]
+    """Tạo Presentation 5 slide song ngữ"""
+    prs = Presentation()
+    prs.slide_width = Inches(13.33)
+    prs.slide_height = Inches(7.5)
+    blank_layout = prs.slide_layouts[6]
 
-  # --- SLIDE 1: Title ---
-  slide1 = prs.slides.add_slide(blank_layout)
-  txBox = slide1.shapes.add_textbox(
-    Inches(1), Inches(2.5), Inches(11.33), Inches(2)
-  )
-  tf = txBox.text_frame
-  p1 = tf.paragraphs[0]
-  p1.text = "WEEKLY CUSTOMER COMPLAINT REPORT (CCR)"
-  p1.font.bold = True
-  p1.font.size = Pt(32)
-  p1.font.color.rgb = RGBColor(30, 61, 89)
+    # --- SLIDE 1: Title ---
+    slide1 = prs.slides.add_slide(blank_layout)
+    txBox = slide1.shapes.add_textbox(Inches(1), Inches(2.5), Inches(11.33), Inches(2))
+    tf = txBox.text_frame
+    p1 = tf.paragraphs[0]
+    p1.text = "WEEKLY CUSTOMER COMPLAINT REPORT (CCR)"
+    p1.font.bold = True
+    p1.font.size = Pt(32)
+    p1.font.color.rgb = RGBColor(30, 61, 89)
 
-  p2 = tf.add_paragraph()
-  p2.text = "BÁO CÁO KHIẾU NẠI KHÁCH HÀNG HÀNG TUẦN"
-  p2.font.size = Pt(20)
-  p2.font.color.rgb = RGBColor(100, 100, 100)
+    p2 = tf.add_paragraph()
+    p2.text = "BÁO CÁO KHIẾU NẠI KHÁCH HÀNG HÀNG TUẦN"
+    p2.font.size = Pt(20)
+    p2.font.color.rgb = RGBColor(100, 100, 100)
 
-  # --- SLIDE 2: Overview / Key Metrics ---
-  slide2 = prs.slides.add_slide(blank_layout)
-  tb = slide2.shapes.add_textbox(
-    Inches(0.8), Inches(0.5), Inches(10), Inches(1)
-  )
-  p = tb.text_frame.paragraphs[0]
-  p.text = "Overview / Tổng quan"
-  p.font.size = Pt(24)
-  p.font.bold = True
+    # --- SLIDE 2: Overview / Key Metrics ---
+    slide2 = prs.slides.add_slide(blank_layout)
+    tb = slide2.shapes.add_textbox(Inches(0.8), Inches(0.5), Inches(10), Inches(1))
+    p = tb.text_frame.paragraphs[0]
+    p.text = "Overview / Tổng quan"
+    p.font.size = Pt(24)
+    p.font.bold = True
 
-  # Tính KPI
-  total_cases = len(df)
+    total_cases = len(df)
 
-  # Format phần trăm nếu dữ liệu là dạng số thập phân (VD: 0.8 -> 80%)
-  res_val = (
-    df["Resolution rate"].dropna().iloc[0]
-    if "Resolution rate" in df.columns and not df["Resolution rate"].dropna().empty
-    else "80%"
-  )
-  if isinstance(res_val, (int, float)):
-    res_rate = f"{float(res_val)*100:.0f}%"
-  else:
-    res_rate = str(res_val)
-
-  tat_val = (
-    df["AVR turnaround time"].dropna().iloc[0]
-    if "AVR turnaround time" in df.columns
-    and not df["AVR turnaround time"].dropna().empty
-    else "1.5"
-  )
-  tat = f"{tat_val} Days"
-
-  metrics = [
-    ("TOTAL COMPLAINTS\nTỔNG SỐ KHIẾU NẠI", str(total_cases)),
-    ("RESOLUTION RATE\nTỶ LỆ HOÀN THÀNH", str(res_rate)),
-    ("AVG TURNAROUND TIME\nTHỜI GIAN ĐIỀU TRA TB", str(tat)),
-  ]
-
-  for i, (title, val) in enumerate(metrics):
-    shape = slide2.shapes.add_shape(
-      MSO_SHAPE.ROUNDED_RECTANGLE,
-      Inches(1 + i * 3.8),
-      Inches(2),
-      Inches(3.5),
-      Inches(2),
+    res_val = (
+        df["Resolution rate"].dropna().iloc[0]
+        if "Resolution rate" in df.columns and not df["Resolution rate"].dropna().empty
+        else "80%"
     )
-    shape.fill.solid()
-    shape.fill.fore_color.rgb = RGBColor(240, 244, 248)
-    tf = shape.text_frame
-    p = tf.paragraphs[0]
-    p.text = title
-    p.font.size = Pt(12)
-    p.font.color.rgb = RGBColor(100, 100, 100)
-    p_val = tf.add_paragraph()
-    p_val.text = val
-    p_val.font.size = Pt(28)
-    p_val.font.bold = True
-    p_val.font.color.rgb = RGBColor(30, 61, 89)
+    if isinstance(res_val, (int, float)):
+        res_rate = f"{float(res_val)*100:.0f}%"
+    else:
+        res_rate = str(res_val)
 
-  # --- SLIDE 3: Trends & Defect Category ---
-  slide3 = prs.slides.add_slide(blank_layout)
-  tb = slide3.shapes.add_textbox(
-    Inches(0.8), Inches(0.5), Inches(10), Inches(1)
-  )
-  tb.text_frame.paragraphs[0].text = (
-    "Trend & Defect Category / Xu hướng & Phân loại lỗi"
-  )
+    tat_val = (
+        df["AVR turnaround time"].dropna().iloc[0]
+        if "AVR turnaround time" in df.columns and not df["AVR turnaround time"].dropna().empty
+        else "1.5"
+    )
+    tat = f"{tat_val} Days"
 
-  slide3.shapes.add_picture(
-    charts["trend"], Inches(1), Inches(1.8), width=Inches(5.5)
-  )
-  slide3.shapes.add_picture(
-    charts["defect"], Inches(6.8), Inches(1.8), width=Inches(5.5)
-  )
-
-  # --- SLIDE 4: Pareto Analysis (80/20) ---
-  slide4 = prs.slides.add_slide(blank_layout)
-  tb = slide4.shapes.add_textbox(
-    Inches(0.8), Inches(0.5), Inches(10), Inches(1)
-  )
-  tb.text_frame.paragraphs[0].text = "Pareto Analysis (80/20) / Phân tích Pareto"
-
-  slide4.shapes.add_picture(
-    charts["defect"], Inches(1), Inches(1.8), width=Inches(5.5)
-  )
-
-  txBox = slide4.shapes.add_textbox(
-    Inches(6.8), Inches(2), Inches(5.5), Inches(4)
-  )
-  tf = txBox.text_frame
-  p = tf.paragraphs[0]
-  p.text = "Key Takeaways / Điểm chính:"
-  p.font.bold = True
-  p.font.size = Pt(16)
-
-  p2 = tf.add_paragraph()
-  p2.text = (
-    "• Shortage (Thiếu số lượng) accounts for the highest proportion.\n  Lỗi"
-    " thiếu số lượng chiếm tỷ trọng cao nhất."
-  )
-  p2.font.size = Pt(14)
-
-  # --- SLIDE 5: Pending Cases Analysis ---
-  slide5 = prs.slides.add_slide(blank_layout)
-  tb = slide5.shapes.add_textbox(
-    Inches(0.8), Inches(0.5), Inches(10), Inches(1)
-  )
-  tb.text_frame.paragraphs[0].text = (
-    "Pending Cases Analysis / Phân tích các trường hợp đang xử lý"
-  )
-
-  if "Remarks" in df.columns:
-    pending_df = df[
-      df["Remarks"].astype(str).str.contains("Pending", case=False, na=False)
+    metrics = [
+        ("TOTAL COMPLAINTS\nTỔNG SỐ KHIẾU NẠI", str(total_cases)),
+        ("RESOLUTION RATE\nTỶ LỆ HOÀN THÀNH", str(res_rate)),
+        ("AVG TURNAROUND TIME\nTHỜI GIAN ĐIỀU TRA TB", str(tat)),
     ]
-  else:
-    pending_df = pd.DataFrame()
 
-  # Tạo bảng
-  rows, cols = len(pending_df) + 1, 5
-  table_shape = slide5.shapes.add_table(
-    rows, cols, Inches(0.8), Inches(1.8), Inches(11.7), Inches(1 + rows * 0.4)
-  )
-  table = table_shape.table
+    for i, (title, val) in enumerate(metrics):
+        shape = slide2.shapes.add_shape(
+            MSO_SHAPE.ROUNDED_RECTANGLE,
+            Inches(1 + i * 3.8),
+            Inches(2),
+            Inches(3.5),
+            Inches(2),
+        )
+        shape.fill.solid()
+        shape.fill.fore_color.rgb = RGBColor(240, 244, 248)
+        tf = shape.text_frame
+        p = tf.paragraphs[0]
+        p.text = title
+        p.font.size = Pt(12)
+        p.font.color.rgb = RGBColor(100, 100, 100)
+        p_val = tf.add_paragraph()
+        p_val.text = val
+        p_val.font.size = Pt(28)
+        p_val.font.bold = True
+        p_val.font.color.rgb = RGBColor(30, 61, 89)
 
-  headers = [
-    "Complaint Code\nMã khiếu nại",
-    "Customer\nKhách hàng",
-    "Defect Type\nLoại lỗi",
-    "Facility\nBộ phận",
-    "Status\nTrạng thái",
-  ]
-  for i, h in enumerate(headers):
-    table.cell(0, i).text = h
+    # --- SLIDE 3: Trends & Defect Category ---
+    slide3 = prs.slides.add_slide(blank_layout)
+    tb = slide3.shapes.add_textbox(Inches(0.8), Inches(0.5), Inches(10), Inches(1))
+    tb.text_frame.paragraphs[0].text = "Trend & Defect Category / Xu hướng & Phân loại lỗi"
 
-  for row_idx, (_, row) in enumerate(pending_df.iterrows(), start=1):
-    table.cell(row_idx, 0).text = str(row.get("Complaint Code", ""))
-    table.cell(row_idx, 1).text = str(row.get("Customer", ""))
-    table.cell(row_idx, 2).text = str(row.get("Defect type", ""))
-    table.cell(row_idx, 3).text = str(row.get("Facility", ""))
-    table.cell(row_idx, 4).text = str(row.get("Remarks", ""))
+    slide3.shapes.add_picture(charts["trend"], Inches(1), Inches(1.8), width=Inches(5.5))
+    slide3.shapes.add_picture(charts["defect"], Inches(6.8), Inches(1.8), width=Inches(5.5))
 
-  # Lưu tập tin PPTX
-  pptx_out = io.BytesIO()
-  prs.save(pptx_out)
-  pptx_out.seek(0)
-  return pptx_out.getvalue()
+    # --- SLIDE 4: Pareto Analysis (80/20) ---
+    slide4 = prs.slides.add_slide(blank_layout)
+    tb = slide4.shapes.add_textbox(Inches(0.8), Inches(0.5), Inches(10), Inches(1))
+    tb.text_frame.paragraphs[0].text = "Pareto Analysis (80/20) / Phân tích Pareto"
+
+    slide4.shapes.add_picture(charts["defect"], Inches(1), Inches(1.8), width=Inches(5.5))
+
+    txBox = slide4.shapes.add_textbox(Inches(6.8), Inches(2), Inches(5.5), Inches(4))
+    tf = txBox.text_frame
+    p = tf.paragraphs[0]
+    p.text = "Key Takeaways / Điểm chính:"
+    p.font.bold = True
+    p.font.size = Pt(16)
+
+    p2 = tf.add_paragraph()
+    p2.text = "• Shortage (Thiếu số lượng) accounts for the highest proportion.\n  Lỗi thiếu số lượng chiếm tỷ trọng cao nhất."
+    p2.font.size = Pt(14)
+
+    # --- SLIDE 5: Pending Cases Analysis ---
+    slide5 = prs.slides.add_slide(blank_layout)
+    tb = slide5.shapes.add_textbox(Inches(0.8), Inches(0.5), Inches(10), Inches(1))
+    tb.text_frame.paragraphs[0].text = "Pending Cases Analysis / Phân tích các trường hợp đang xử lý"
+
+    if "Remarks" in df.columns:
+        pending_df = df[df["Remarks"].astype(str).str.contains("Pending", case=False, na=False)]
+    else:
+        pending_df = pd.DataFrame()
+
+    rows, cols = len(pending_df) + 1, 5
+    table_shape = slide5.shapes.add_table(
+        rows, cols, Inches(0.8), Inches(1.8), Inches(11.7), Inches(1 + rows * 0.4)
+    )
+    table = table_shape.table
+
+    headers = [
+        "Complaint Code\nMã khiếu nại",
+        "Customer\nKhách hàng",
+        "Defect Type\nLoại lỗi",
+        "Facility\nBộ phận",
+        "Status\nTrạng thái",
+    ]
+    for i, h in enumerate(headers):
+        table.cell(0, i).text = h
+
+    for row_idx, (_, row) in enumerate(pending_df.iterrows(), start=1):
+        table.cell(row_idx, 0).text = str(row.get("Complaint Code", ""))
+        table.cell(row_idx, 1).text = str(row.get("Customer", ""))
+        table.cell(row_idx, 2).text = str(row.get("Defect type", ""))
+        table.cell(row_idx, 3).text = str(row.get("Facility", ""))
+        table.cell(row_idx, 4).text = str(row.get("Remarks", ""))
+
+    pptx_out = io.BytesIO()
+    prs.save(pptx_out)
+    pptx_out.seek(0)
+    return pptx_out.getvalue()
 
 
 # Xử lý ứng dụng Streamlit
 if uploaded_file:
-  try:
-    # 1. Đọc đúng hàng tiêu đề (bỏ qua dòng tiêu đề CUSTOMER COMPLAINT STATISTICS)
-    df = pd.read_excel(uploaded_file, header=1)
+    try:
+        # Đọc dữ liệu từ hàng thứ 2 (header=1) để bỏ qua tiêu đề CUSTOMER COMPLAINT STATISTICS
+        df = pd.read_excel(uploaded_file, header=1)
 
-    # 2. Xử lý bóc tách lấy tên cột Tiếng Anh đầu tiên (VD: "Complaint Code\nMã khiếu nại" -> "Complaint Code")
-    df.columns = [str(c).split("\n")[0].strip() for c in df.columns]
+        # Lấy tên cột tiếng Anh ở dòng trên (bỏ dòng tiếng Việt bên dưới)
+        df.columns = [str(c).split("\n")[0].strip() for c in df.columns]
 
-    st.success("File Excel loaded successfully / Đã tải dữ liệu thành công!")
+        st.success("File Excel loaded successfully / Đã tải dữ liệu thành công!")
 
-    # Tạo file PPTX (dạng Bytes)
-    charts = generate_charts(df)
-    pptx_bytes = create_pptx(df, charts)
+        # Tạo dữ liệu PowerPoint
+        charts = generate_charts(df)
+        pptx_bytes = create_pptx(df, charts)
 
-    # Chuyển đổi sang PDF
-    pdf_bytes = convert_pptx_to_pdf_bytes(pptx_bytes)
+        # Tạo file PDF thông qua Microsoft PowerPoint ngầm
+        pdf_bytes = convert_pptx_to_pdf_bytes(pptx_bytes)
 
-    st.subheader("📥 Download Report / Tải Báo Cáo")
-    col1, col2 = st.columns(2)
+        st.subheader("📥 Download Report / Tải Báo Cáo")
+        col1, col2 = st.columns(2)
 
-    # Nút Tải PPTX
-    with col1:
-      st.download_button(
-        label="Download PowerPoint (.pptx)",
-        data=pptx_bytes,
-        file_name="Weekly_Customer_Complaint_Report.pptx",
-        mime=(
-          "application/vnd.openxmlformats-officedocument.presentationml.presentation"
-        ),
-      )
+        # Nút Tải PPTX
+        with col1:
+            st.download_button(
+                label="Download PowerPoint (.pptx)",
+                data=pptx_bytes,
+                file_name="Weekly_Customer_Complaint_Report.pptx",
+                mime="application/vnd.openxmlformats-officedocument.presentationml.presentation",
+            )
 
-    # Nút Tải PDF
-    with col2:
-      if pdf_bytes:
-        st.download_button(
-          label="Download PDF (.pdf)",
-          data=pdf_bytes,
-          file_name="Weekly_Customer_Complaint_Report.pdf",
-          mime="application/pdf",
-        )
-      else:
-        st.info("💡 Bạn hãy tải file PPTX về và chọn File > Save As PDF.")
+        # Nút Tải PDF
+        with col2:
+            if pdf_bytes:
+                st.download_button(
+                    label="Download PDF (.pdf)",
+                    data=pdf_bytes,
+                    file_name="Weekly_Customer_Complaint_Report.pdf",
+                    mime="application/pdf",
+                )
+            else:
+                st.info("💡 Không tạo được PDF. Bạn có thể tải PPTX về và chọn Save As PDF trong PowerPoint.")
 
-  except Exception as e:
-    st.error(f"Lỗi khi đọc file Excel: {e}")
+    except Exception as e:
+        st.error(f"Lỗi khi xử lý file Excel: {e}")
