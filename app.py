@@ -8,6 +8,7 @@ from pptx.dml.color import RGBColor
 from pptx.enum.shapes import MSO_SHAPE
 import io
 import os
+import re
 
 # Cấu hình trang Streamlit
 st.set_page_config(page_title="CCR Generator", layout="centered")
@@ -25,7 +26,6 @@ def generate_charts(df):
     # Biểu đồ Trend (Slide 3)
     fig, ax = plt.subplots(figsize=(5, 3))
     
-    # Ép kiểu datetime an toàn hơn (bỏ qua dòng trống nếu có)
     df['Date'] = pd.to_datetime(df['Date'], errors='coerce')
     df_clean = df.dropna(subset=['Date'])
     
@@ -172,11 +172,11 @@ def create_pptx(df, charts):
 
 # Xử lý ứng dụng Streamlit
 if uploaded_file:
-    # 1. Đọc từ dòng 3 (header=2) để bỏ qua tiêu đề lớn trang trí
+    # 1. Đọc file bắt đầu từ dòng 3 (header=2)
     df = pd.read_excel(uploaded_file, header=2)
     
-    # 2. Loại bỏ phần tiếng Việt phía sau dấu \n để lấy tên cột tiếng Anh đúng chuẩn (VD: 'Date\nNgày' -> 'Date')
-    df.columns = [str(col).split('\n')[0].strip() for col in df.columns]
+    # 2. Xử lý triệt để tên cột bằng Regex (Tách bỏ mọi loại xuống dòng \n, \r\n, khoảng trắng ẩn)
+    df.columns = [re.split(r'[\r\n]+', str(col))[0].strip() for col in df.columns]
 
     st.success("File Excel loaded successfully / Đã tải dữ liệu thành công!")
     
