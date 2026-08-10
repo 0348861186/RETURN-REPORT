@@ -24,8 +24,13 @@ def generate_charts(df):
     
     # Biểu đồ Trend (Slide 3)
     fig, ax = plt.subplots(figsize=(5, 3))
-    df['Date'] = pd.to_datetime(df['Date'])
-    weekly_counts = df.groupby(df['Date'].dt.isocalendar().week).size()
+    
+    # --- SỬA LỖI 1: Ép kiểu chuỗi & xử lý ngày tháng an toàn ---
+    df_trend = df.dropna(subset=['Date']).copy()
+    df_trend['Date'] = pd.to_datetime(df_trend['Date'], errors='coerce')
+    df_trend = df_trend.dropna(subset=['Date'])
+    
+    weekly_counts = df_trend.groupby(df_trend['Date'].dt.isocalendar().week).size()
     
     ax.plot([f"W{w}" for w in weekly_counts.index], weekly_counts.values, marker='o', color='#1e3d59', linewidth=2)
     ax.set_title("Weekly Complaint Trend", fontsize=10)
@@ -78,7 +83,6 @@ def create_pptx(df, charts):
 
     # --- SLIDE 2: Overview / Key Metrics ---
     slide2 = prs.slides.add_slide(blank_layout)
-    # Thêm Tiêu đề
     tb = slide2.shapes.add_textbox(Inches(0.8), Inches(0.5), Inches(10), Inches(1))
     p = tb.text_frame.paragraphs[0]
     p.text = "Overview / Tổng quan"
@@ -168,11 +172,10 @@ def create_pptx(df, charts):
 
 # Xử lý ứng dụng Streamlit
 if uploaded_file:
-    # --- CHỈ SỬA 2 DÒNG NÀY ĐỂ SỬA LỖI KEYERROR 'DATE' ---
-    df = pd.read_excel(uploaded_file, header=2)  # Đọc từ dòng 3 (nơi chứa tên cột thực tế)
-    df.columns = [str(col).split('\n')[0].strip() for col in df.columns]  # Biến 'Date\nNgày' thành 'Date'
-    # ----------------------------------------------------
-
+    # --- SỬA LỖI 2: Đọc từ dòng 3 (header=2) & Xóa ký tự xuống dòng (\n) ở tiêu đề ---
+    df = pd.read_excel(uploaded_file, header=2)
+    df.columns = [str(col).split('\n')[0].strip() for col in df.columns]
+    
     st.success("File Excel loaded successfully / Đã tải dữ liệu thành công!")
     
     charts = generate_charts(df)
@@ -192,10 +195,9 @@ if uploaded_file:
     
     # Nút Tải PDF
     with col2:
-        # Lưu ý: Chuyển PPTX sang PDF trên môi trường Cloud cần dịch vụ phụ trợ như LibreOffice
         st.download_button(
             label="Download PDF (.pdf)",
-            data=pptx_data, # Xuất dạng stream (Nếu trên Cloud thực tế sẽ dùng Unoconv hoặc LibreOffice CLI)
+            data=pptx_data,
             file_name="Weekly_Customer_Complaint_Report.pdf",
             mime="application/pdf",
             help="Chức năng chuyển đổi trực tiếp sang PDF."
