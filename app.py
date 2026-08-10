@@ -7,81 +7,55 @@ from pptx.util import Inches, Pt
 from pptx.dml.color import RGBColor
 from pptx.enum.shapes import MSO_SHAPE
 
+# Streamlit Page Configuration
 st.set_page_config(page_title="CCR Generator", layout="centered")
 
 st.title("📊 CCR Report Generator / Tạo Báo Cáo Khiếu Nại")
 st.write("Tải file Excel để tự động tạo báo cáo PPTX song ngữ.")
 
+# 1. File Uploader
 uploaded_file = st.file_uploader("Upload Excel File (.xlsx)", type=["xlsx"])
 
 
-def process_dataframe(df):
-    """Làm sạch tên cột từ file Excel có xuống dòng/tiếng Việt"""
-    # Gộp/Chuẩn hóa tên cột bằng cách bỏ các ký tự xuống dòng và khoảng trắng thừa
-    df.columns = [str(col).replace('\n', ' ').strip() for col in df.columns]
-
-    # Hàm tìm tên cột chính xác dù tiêu đề chứa cả Tiếng Anh + Tiếng Việt
-    def find_col(keywords):
-        for col in df.columns:
-            if any(kw.lower() in col.lower() for kw in keywords):
-                return col
-        return None
-
-    col_map = {
-        'code': find_col(['Complaint Code', 'Mã khiếu nại']),
-        'date': find_col(['Date', 'Ngày']),
-        'facility': find_col(['Facility', 'Bộ phận']),
-        'customer': find_col(['Customer', 'Khách hàng']),
-        'defect': find_col(['Defect type', 'Loại lỗi']),
-        'remarks': find_col(['Remarks']),
-        'res_rate': find_col(['Resolution rate', 'Tỉ lệ hoàn thành']),
-        'tat': find_col(['AVR turnaround time', 'Thời gian điều tra'])
-    }
-    return df, col_map
-
-
-def generate_charts(df, col_map):
-    """Tạo biểu đồ Trend và Defect Category từ dữ liệu Excel"""
+def generate_charts(df):
+    """Tạo biểu đồ Trend và Defect Distribution từ dữ liệu Excel"""
     charts = {}
 
-    # 1. Biểu đồ Trend
-    if col_map['date'] and col_map['date'] in df.columns:
-        fig, ax = plt.subplots(figsize=(5, 3))
-        df_trend = df.copy()
-        df_trend['parsed_date'] = pd.to_datetime(df_trend[col_map['date']], errors='coerce')
-        weekly_counts = df_trend.groupby(df_trend['parsed_date'].dt.isocalendar().week).size()
+    # Biểu đồ Trend (Slide 3)
+    fig, ax = plt.subplots(figsize=(5, 3))
+    df_trend = df.copy()
+    df_trend['Date'] = pd.to_datetime(df_trend['Date'])
+    weekly_counts = df_trend.groupby(df_trend['Date'].dt.isocalendar().week).size()
 
-        if not weekly_counts.empty:
-            ax.plot([f"W{w}" for w in weekly_counts.index], weekly_counts.values, marker='o', color='#1e3d59', linewidth=2)
-        ax.set_title("Weekly Complaint Trend", fontsize=10)
-        plt.tight_layout()
+    ax.plot([f"W{w}" for w in weekly_counts.index], weekly_counts.values, marker='o', color='#1e3d59', linewidth=2)
+    ax.set_title("Weekly Complaint Trend", fontsize=10)
+    plt.tight_layout()
 
-        trend_img = io.BytesIO()
-        plt.savefig(trend_img, format='png', dpi=150)
-        trend_img.seek(0)
-        charts['trend'] = trend_img
-        plt.close()
+    trend_img = io.BytesIO()
+    plt.savefig(trend_img, format='png', dpi=150)
+    trend_img.seek(0)
+    charts['trend'] = trend_img
+    plt.close()
 
-    # 2. Biểu đồ Defect Category
-    if col_map['defect'] and col_map['defect'] in df.columns:
-        fig, ax = plt.subplots(figsize=(5, 3))
-        defect_counts = df[col_map['defect']].astype(str).value_counts()
+    # Biểu đồ Defect Category (Slide 3 & 4)
+    fig, ax = plt.subplots(figsize=(5, 3))
+    defect_counts = df['Defect type'].value_counts()
 
-        ax.bar(defect_counts.index, defect_counts.values, color='#ff6e40')
-        ax.set_title("Defect Category Distribution", fontsize=10)
-        plt.xticks(rotation=15, ha='right', fontsize=8)
-        plt.tight_layout()
+    ax.bar(defect_counts.index, defect_counts.values, color='#ff6e40')
+    ax.set_title("Defect Category Distribution", fontsize=10)
+    plt.xticks(rotation=15, ha='right', fontsize=8)
+    plt.tight_layout()
 
-        defect_img = io.BytesIO()
-        plt.savefig(defect_img, format='png', dpi=150)
-        defect_img.seek(0)
-        charts['defect'] = defect_img
-        plt.close()
+    defect_img = io.BytesIO()
+    plt.savefig(defect_img, format='png', dpi=150)
+    defect_img.seek(0)
+    charts['defect'] = defect_img
+    plt.close()
 
     return charts
 
 
-def create_pptx(df, col_map, charts):
+def create_pptx(df, charts):
     """Tạo Presentation 5 slide song ngữ"""
     prs = Presentation()
     prs.slide_width = Inches(13.33)
@@ -112,27 +86,13 @@ def create_pptx(df, col_map, charts):
     p.font.bold = True
 
     total_cases = len(df)
-    
-    # Lấy giá trị KPI từ dòng có dữ liệu đầu tiên
-    res_rate_col = col_map['res_rate']
-    res_rate = "N/A"
-    if res_rate_col and res_rate_col in df.columns:
-        valid_res = df[res_rate_col].dropna()
-        if not valid_res.empty:
-            res_val = valid_res.iloc[0]
-            res_rate = f"{float(res_val)*100:.0f}%" if isinstance(res_val, (int, float)) else str(res_val)
-
-    tat_col = col_map['tat']
-    tat = "N/A"
-    if tat_col and tat_col in df.columns:
-        valid_tat = df[tat_col].dropna()
-        if not valid_tat.empty:
-            tat = f"{valid_tat.iloc[0]} Days"
+    res_rate = df['Resolution rate'].iloc[0] if 'Resolution rate' in df.columns else "N/A"
+    tat = df['AVR turnaround time'].iloc[0] if 'AVR turnaround time' in df.columns else "N/A"
 
     metrics = [
         ("TOTAL COMPLAINTS\nTỔNG SỐ KHIẾU NẠI", str(total_cases)),
         ("RESOLUTION RATE\nTỶ LỆ HOÀN THÀNH", str(res_rate)),
-        ("AVG TURNAROUND TIME\nTHỜI GIAN ĐIỀU TRA TB", str(tat))
+        ("AVG TURNAROUND TIME\nTHỜI GIAN ĐIỀU TRA TB", f"{tat} Days" if tat != "N/A" else "N/A")
     ]
 
     for i, (title, val) in enumerate(metrics):
@@ -155,18 +115,15 @@ def create_pptx(df, col_map, charts):
     tb = slide3.shapes.add_textbox(Inches(0.8), Inches(0.5), Inches(10), Inches(1))
     tb.text_frame.paragraphs[0].text = "Trend & Defect Category / Xu hướng & Phân loại lỗi"
 
-    if 'trend' in charts:
-        slide3.shapes.add_picture(charts['trend'], Inches(1), Inches(1.8), width=Inches(5.5))
-    if 'defect' in charts:
-        slide3.shapes.add_picture(charts['defect'], Inches(6.8), Inches(1.8), width=Inches(5.5))
+    slide3.shapes.add_picture(charts['trend'], Inches(1), Inches(1.8), width=Inches(5.5))
+    slide3.shapes.add_picture(charts['defect'], Inches(6.8), Inches(1.8), width=Inches(5.5))
 
-    # --- SLIDE 4: Pareto Analysis ---
+    # --- SLIDE 4: Pareto Analysis (80/20) ---
     slide4 = prs.slides.add_slide(blank_layout)
     tb = slide4.shapes.add_textbox(Inches(0.8), Inches(0.5), Inches(10), Inches(1))
     tb.text_frame.paragraphs[0].text = "Pareto Analysis (80/20) / Phân tích Pareto"
 
-    if 'defect' in charts:
-        slide4.shapes.add_picture(charts['defect'], Inches(1), Inches(1.8), width=Inches(5.5))
+    slide4.shapes.add_picture(charts['defect'], Inches(1), Inches(1.8), width=Inches(5.5))
 
     txBox = slide4.shapes.add_textbox(Inches(6.8), Inches(2), Inches(5.5), Inches(4))
     tf = txBox.text_frame
@@ -184,9 +141,9 @@ def create_pptx(df, col_map, charts):
     tb = slide5.shapes.add_textbox(Inches(0.8), Inches(0.5), Inches(10), Inches(1))
     tb.text_frame.paragraphs[0].text = "Pending Cases Analysis / Phân tích các trường hợp đang xử lý"
 
-    remarks_col = col_map['remarks']
-    if remarks_col and remarks_col in df.columns:
-        pending_df = df[df[remarks_col].astype(str).str.contains('Pending', case=False, na=False)]
+    # Tránh lỗi Key/Attribute nếu không tìm thấy cột Remarks
+    if 'Remarks' in df.columns:
+        pending_df = df[df['Remarks'].astype(str).str.contains('Pending', case=False, na=False)]
     else:
         pending_df = pd.DataFrame()
 
@@ -200,31 +157,30 @@ def create_pptx(df, col_map, charts):
         table.cell(0, i).text = h
 
     for row_idx, (_, row) in enumerate(pending_df.iterrows(), start=1):
-        table.cell(row_idx, 0).text = str(row.get(col_map['code'], ''))
-        table.cell(row_idx, 1).text = str(row.get(col_map['customer'], ''))
-        table.cell(row_idx, 2).text = str(row.get(col_map['defect'], ''))
-        table.cell(row_idx, 3).text = str(row.get(col_map['facility'], ''))
-        table.cell(row_idx, 4).text = str(row.get(col_map['remarks'], ''))
+        table.cell(row_idx, 0).text = str(row.get('Complaint Code', ''))
+        table.cell(row_idx, 1).text = str(row.get('Customer', ''))
+        table.cell(row_idx, 2).text = str(row.get('Defect type', ''))
+        table.cell(row_idx, 3).text = str(row.get('Facility', ''))
+        table.cell(row_idx, 4).text = str(row.get('Remarks', ''))
 
+    # Save to Stream
     pptx_out = io.BytesIO()
     prs.save(pptx_out)
     pptx_out.seek(0)
     return pptx_out
 
 
-# Main Streamlit App Logic
+# Application logic
 if uploaded_file:
     try:
-        raw_df = pd.read_excel(uploaded_file)
-        df, col_map = process_dataframe(raw_df)
-
+        df = pd.read_excel(uploaded_file)
         st.success("File Excel loaded successfully / Đã tải dữ liệu thành công!")
-        st.dataframe(df.head(3))
 
-        charts = generate_charts(df, col_map)
-        pptx_data = create_pptx(df, col_map, charts)
+        charts = generate_charts(df)
+        pptx_data = create_pptx(df, charts)
 
         st.subheader("📥 Download Report / Tải Báo Cáo")
+
         st.download_button(
             label="Download PowerPoint (.pptx)",
             data=pptx_data,
@@ -232,4 +188,4 @@ if uploaded_file:
             mime="application/vnd.openxmlformats-officedocument.presentationml.presentation"
         )
     except Exception as e:
-        st.error(f"Lỗi xử lý file Excel: {str(e)}")
+        st.error(f"Error processing file: {str(e)}")
