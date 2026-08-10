@@ -21,11 +21,10 @@ st.markdown(
 )
 
 # ============================================================
-# XỬ LÝ DỮ LIỆU & PHÒNG NGỪA LỖI KEYERROR: 'Date'
+# XỬ LÝ DỮ LIỆU LINH HOẠT (KHÔNG BỊ LỖI KHI THIẾU CỘT)
 # ============================================================
 uploaded_file = st.file_uploader(
-    "Tải lên file dữ liệu khiếu nại (Excel/CSV có chứa cột Date hoặc Ngày)",
-    type=["csv", "xlsx"],
+    "Tải lên file dữ liệu khiếu nại (Excel hoặc CSV)", type=["csv", "xlsx"]
 )
 
 if uploaded_file is not None:
@@ -35,30 +34,37 @@ if uploaded_file is not None:
     else:
       df = pd.read_excel(uploaded_file)
 
-    # Khắc phục lỗi KeyError: 'Date' bằng cách kiểm tra linh hoạt tên cột
-    if "Date" not in df.columns:
-      # Tìm các cột có tên gần giống như 'date', 'ngay', 'Date', 'Ngày'
-      possible_cols = [
-          c
-          for c in df.columns
-          if c.lower() in ["date", "ngày", "ngay_thang", "time"]
-      ]
-      if possible_cols:
-        df = df.rename(columns={possible_cols[0]: "Date"})
-        st.warning(
-            f"⚠️ Đã tự động nhận diện cột '{possible_cols[0]}' làm cột 'Date'."
-        )
-      else:
-        st.error(
-            "❌ Lỗi: File dữ liệu thiếu cột **'Date'** (hoặc 'Ngày'). Vui lòng"
-            " kiểm tra lại cấu trúc file!"
-        )
-        st.stop()
+    # Tự động tìm kiếm các cột có khả năng là ngày tháng hoặc chuẩn hóa
+    date_found = False
+    for col in df.columns:
+      if any(
+          kw in str(col).lower() for kw in ["date", "ngày", "ngay", "time"]
+      ):
+        if col != "Date":
+          df = df.rename(columns={col: "Date"})
+        date_found = True
+        break
+
+    # Nếu file hoàn toàn không có cột ngày tháng, tự động tạo một cột mặc định để không crash code
+    if not date_found:
+      df["Date"] = "2026-08-10"
+      st.info(
+          "ℹ️ File của bạn không có cột 'Date' hay 'Ngày'. Hệ thống đã tự động"
+          " tạo cột Date mặc định để chạy tiếp."
+      )
+
   except Exception as e:
     st.error(f"❌ Lỗi khi đọc file: {e}")
-    st.stop()
+    # Dùng dữ liệu mẫu dự phòng khi lỗi đọc file
+    df = pd.DataFrame({
+        "Date": ["2026-08-01", "2026-08-02", "2026-08-03"],
+        "Complaint Code": ["CCR-2026-001", "CCR-2026-002", "CCR-2026-003"],
+        "Facility": ["Plant A", "Plant B", "Plant A"],
+        "Customer": ["Customer A", "Customer B", "Customer C"],
+        "Status": ["OPEN", "CLOSED", "OPEN"],
+    })
 else:
-  # Dữ liệu mẫu mặc định nếu chưa upload file (giúp app không bị crash)
+  # Dữ liệu mẫu mặc định nếu chưa upload file
   st.info(
       "💡 Đang hiển thị dữ liệu mẫu. Hãy tải lên file của bạn để xem dữ liệu"
       " thực tế."
@@ -100,32 +106,6 @@ def generate_pptx_stream(data_df):
     fill.solid()
     fill.fore_color.rgb = COLOR_BG
 
-  def add_title_banner(slide, title_en, title_vi, color):
-    banner = slide.shapes.add_shape(
-        MSO_SHAPE.ROUNDED_RECTANGLE,
-        Inches(0.5),
-        Inches(0.4),
-        Inches(12.333),
-        Inches(0.8),
-    )
-    banner.fill.solid()
-    banner.fill.fore_color.rgb = color
-    banner.line.color.rgb = color
-    tf = banner.text_frame
-    tf.clear()
-    p = tf.paragraphs[0]
-    p.text = title_en
-    p.font.size = Pt(18)
-    p.font.bold = True
-    p.font.color.rgb = COLOR_WHITE
-    p.alignment = PP_ALIGN.CENTER
-
-    p2 = tf.add_paragraph()
-    p2.text = title_vi
-    p2.font.size = Pt(11)
-    p2.font.color.rgb = COLOR_WHITE
-    p2.alignment = PP_ALIGN.CENTER
-
   # SLIDE 1 - COVER
   slide = prs.slides.add_slide(blank_layout)
   set_background(slide)
@@ -155,7 +135,7 @@ def generate_pptx_stream(data_df):
   p2.font.color.rgb = COLOR_WHITE
   p2.alignment = PP_ALIGN.CENTER
 
-  # Xuất file ra stream trong bộ nhớ thay vì lưu ổ cứng
+  # Xuất file ra stream trong bộ nhớ
   file_stream = io.BytesIO()
   prs.save(file_stream)
   file_stream.seek(0)
