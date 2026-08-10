@@ -1,256 +1,89 @@
-import streamlit as st
-import pandas as pd
-import matplotlib.pyplot as plt
 from pptx import Presentation
 from pptx.util import Inches, Pt
 from pptx.enum.text import PP_ALIGN
 from pptx.dml.color import RGBColor
 from pptx.enum.shapes import MSO_SHAPE
-import io
-import os
-import re
+from pptx.chart.data import CategoryChartData
+from pptx.enum.chart import XL_CHART_TYPE
 
-# Cấu hình trang Streamlit
-st.set_page_config(page_title="CCR Generator", layout="centered")
+# 1. Khởi tạo Presentation (Màn hình rộng 16:9)
+prs = Presentation()
+prs.slide_width = Inches(13.333)
+prs.slide_height = Inches(7.5)
 
-st.title("📊 CCR Report Generator / Tạo Báo Cáo Khiếu Nại")
-st.write("Tải file Excel để tự động tạo báo cáo PPTX / PDF song ngữ.")
+blank_layout = prs.slide_layouts[6] # Blank slide layout
 
-# 1. Tải file Excel
-uploaded_file = st.file_uploader("Upload Excel File (.xlsx)", type=["xlsx"])
+# Bảng màu chủ đạo (Color Palette)
+COLOR_BG = RGBColor(245, 247, 250)      # Nền sáng
+COLOR_BLUE = RGBColor(37, 99, 235)      # Xanh lam
+COLOR_GREEN = RGBColor(16, 185, 129)    # Xanh lá
+COLOR_ORANGE = RGBColor(245, 158, 11)   # Cam
+COLOR_RED = RGBColor(220, 38, 38)       # Đỏ
+COLOR_DARK = RGBColor(30, 41, 59)       # Chữ đen xám
+COLOR_WHITE = RGBColor(255, 255, 255)  # Trắng
 
-def load_and_clean_excel(file):
-    """
-    Tự động dò tìm dòng header chứa dữ liệu thực sự trong 10 dòng đầu tiên
-    và chuẩn hóa các tên cột quan trọng.
-    """
-    # Đọc thử 10 dòng đầu không header để quét vị trí
-    preview_df = pd.read_excel(file, nrows=10, header=None)
-    
-    header_idx = 0
-    for idx, row in preview_df.iterrows():
-        row_str = " ".join(row.dropna().astype(str)).lower()
-        if 'date' in row_str or 'nguồn' in row_str or 'ngày' in row_str:
-            header_idx = idx
-            break
-            
-    # Đọc lại file với đúng dòng header tìm được
-    file.seek(0)
-    df = pd.read_excel(file, header=header_idx)
-    
-    # Mapping tên cột dựa trên từ khóa linh hoạt
-    column_mapping = {}
-    for col in df.columns:
-        col_str = str(col).lower()
-        if 'date' in col_str or 'ngày' in col_str:
-            if 'completion' not in col_str and 'hoàn thành' not in col_str:
-                column_mapping[col] = 'Date'
-        elif 'defect' in col_str or 'phân loại lỗi' in col_str or 'loại lỗi' in col_str:
-            column_mapping[col] = 'Defect type'
-        elif 'complaint' in col_str or 'mã khiếu nại' in col_str:
-            column_mapping[col] = 'Complaint Code'
-        elif 'customer' in col_str or 'khách hàng' in col_str:
-            column_mapping[col] = 'Customer'
-        elif 'facility' in col_str or 'bộ phận' in col_str:
-            column_mapping[col] = 'Facility'
-        elif 'remark' in col_str or 'trạng thái' in col_str or 'ghi chú' in col_str:
-            column_mapping[col] = 'Remarks'
-        elif 'resolution' in col_str or 'tỷ lệ' in col_str:
-            column_mapping[col] = 'Resolution rate'
-        elif 'turnaround' in col_str or 'avr' in col_str or 'thời gian' in col_str:
-            column_mapping[col] = 'AVR turnaround time'
 
-    df = df.rename(columns=column_mapping)
-    
-    # Fallback an toàn: Nếu vẫn không tìm thấy 'Date', lấy cột đầu tiên chứa dữ liệu dạng datetime/chuỗi
-    if 'Date' not in df.columns and len(df.columns) > 0:
-        df.rename(columns={df.columns[0]: 'Date'}, inplace=True)
-        
-    return df
+# -----------------------------------------------------------------------------
+# SLIDE 3: OVERVIEW & KEY METRICS
+# -----------------------------------------------------------------------------
+slide_3 = prs.slides.add_slide(blank_layout)
 
-def generate_charts(df):
-    """Tạo biểu đồ Trend và Pareto từ dữ liệu Excel"""
-    charts = {}
-    
-    # Biểu đồ Trend (Slide 3)
-    fig, ax = plt.subplots(figsize=(5, 3))
-    
-    df['Date'] = pd.to_datetime(df['Date'], errors='coerce')
-    df_clean = df.dropna(subset=['Date'])
-    
-    if not df_clean.empty:
-        weekly_counts = df_clean.groupby(df_clean['Date'].dt.isocalendar().week).size()
-        ax.plot([f"W{w}" for w in weekly_counts.index], weekly_counts.values, marker='o', color='#1e3d59', linewidth=2)
-    else:
-        ax.text(0.5, 0.5, 'No Valid Date Data', horizontalalignment='center', verticalalignment='center')
-        
-    ax.set_title("Weekly Complaint Trend", fontsize=10)
-    plt.tight_layout()
-    
-    trend_img = io.BytesIO()
-    plt.savefig(trend_img, format='png', dpi=150)
-    trend_img.seek(0)
-    charts['trend'] = trend_img
-    plt.close()
+# Banner Tiêu Đề Top
+banner = slide_3.shapes.add_shape(MSO_SHAPE.ROUNDED_RECTANGLE, Inches(0.5), Inches(0.4), Inches(12.333), Inches(0.8))
+banner.fill.solid()
+banner.fill.fore_color.rgb = COLOR_BLUE
+banner.line.color.rgb = COLOR_BLUE
+tf_b = banner.text_frame
+tf_b.text = "OVERVIEW & KEY METRICS\nTỔNG QUAN & CHỈ SỐ KPI HÀNG TUẦN"
+tf_b.paragraphs[0].font.size = Pt(14)
+tf_b.paragraphs[0].font.bold = True
+tf_b.paragraphs[0].font.color.rgb = COLOR_WHITE
 
-    # Biểu đồ Defect Category Pareto (Slide 3 & 4)
-    fig, ax = plt.subplots(figsize=(5, 3))
-    
-    defect_col = 'Defect type' if 'Defect type' in df.columns else df.columns[1]
-    defect_counts = df[defect_col].value_counts()
-    
-    ax.bar(defect_counts.index.astype(str), defect_counts.values, color='#ff6e40')
-    ax.set_title("Defect Category Distribution", fontsize=10)
-    plt.xticks(rotation=15, ha='right', fontsize=8)
-    plt.tight_layout()
-    
-    defect_img = io.BytesIO()
-    plt.savefig(defect_img, format='png', dpi=150)
-    defect_img.seek(0)
-    charts['defect'] = defect_img
-    plt.close()
+# Thẻ Metric 1 (Total Complaints)
+card1 = slide_3.shapes.add_shape(MSO_SHAPE.ROUNDED_RECTANGLE, Inches(0.5), Inches(1.4), Inches(3.9), Inches(1.8))
+card1.fill.solid()
+card1.fill.fore_color.rgb = COLOR_WHITE
+card1.line.color.rgb = COLOR_BLUE
+tf1 = card1.text_frame
+tf1.text = "3 Cases\nTOTAL COMPLAINTS RECEIVED\nTổng số khiếu nại phát sinh"
+tf1.paragraphs[0].font.size = Pt(28)
+tf1.paragraphs[0].font.bold = True
+tf1.paragraphs[0].font.color.rgb = COLOR_BLUE
 
-    return charts
+# Bảng Danh Sách Complaint
+table_shape = slide_3.shapes.add_table(4, 4, Inches(0.5), Inches(3.4), Inches(7.0), Inches(2.5))
+table = table_shape.table
+headers = ["Complaint Code", "Facility", "Customer", "Status"]
+for i, name in enumerate(headers):
+    table.cell(0, i).text = name
 
-def create_pptx(df, charts):
-    """Tạo Presentation 5 slide song ngữ"""
-    prs = Presentation()
-    prs.slide_width = Inches(13.33)
-    prs.slide_height = Inches(7.5)
-    blank_layout = prs.slide_layouts[6]
 
-    # --- SLIDE 1: Title ---
-    slide1 = prs.slides.add_slide(blank_layout)
-    txBox = slide1.shapes.add_textbox(Inches(1), Inches(2.5), Inches(11.33), Inches(2))
-    tf = txBox.text_frame
-    p1 = tf.paragraphs[0]
-    p1.text = "WEEKLY CUSTOMER COMPLAINT REPORT (CCR)"
-    p1.font.bold = True
-    p1.font.size = Pt(32)
-    p1.font.color.rgb = RGBColor(30, 61, 89)
-    
-    p2 = tf.add_paragraph()
-    p2.text = "BÁO CÁO KHIẾU NẠI KHÁCH HÀNG HÀNG TUẦN"
-    p2.font.size = Pt(20)
-    p2.font.color.rgb = RGBColor(100, 100, 100)
+# -----------------------------------------------------------------------------
+# SLIDE 4: TREND & DEFECT CATEGORY ANALYSIS (Donut Chart)
+# -----------------------------------------------------------------------------
+slide_4 = prs.slides.add_slide(blank_layout)
 
-    # --- SLIDE 2: Overview / Key Metrics ---
-    slide2 = prs.slides.add_slide(blank_layout)
-    tb = slide2.shapes.add_textbox(Inches(0.8), Inches(0.5), Inches(10), Inches(1))
-    p = tb.text_frame.paragraphs[0]
-    p.text = "Overview / Tổng quan"
-    p.font.size = Pt(24)
-    p.font.bold = True
-    
-    total_cases = len(df)
-    res_rate = df['Resolution rate'].iloc[0] if 'Resolution rate' in df.columns else "80%"
-    tat = df['AVR turnaround time'].iloc[0] if 'AVR turnaround time' in df.columns else "1.5 Days"
-    
-    metrics = [
-        ("TOTAL COMPLAINTS\nTỔNG SỐ KHIẾU NẠI", str(total_cases)),
-        ("RESOLUTION RATE\nTỶ LỆ HOÀN THÀNH", str(res_rate)),
-        ("AVG TURNAROUND TIME\nTHỜI GIAN ĐIỀU TRA TB", f"{tat} Days")
-    ]
-    
-    for i, (title, val) in enumerate(metrics):
-        shape = slide2.shapes.add_shape(MSO_SHAPE.ROUNDED_RECTANGLE, Inches(1 + i*3.8), Inches(2), Inches(3.5), Inches(2))
-        shape.fill.solid()
-        shape.fill.fore_color.rgb = RGBColor(240, 244, 248)
-        tf = shape.text_frame
-        p = tf.paragraphs[0]
-        p.text = title
-        p.font.size = Pt(12)
-        p.font.color.rgb = RGBColor(100, 100, 100)
-        p_val = tf.add_paragraph()
-        p_val.text = val
-        p_val.font.size = Pt(28)
-        p_val.font.bold = True
-        p_val.font.color.rgb = RGBColor(30, 61, 89)
+# Banner Tiêu Đề Đỏ
+banner4 = slide_4.shapes.add_shape(MSO_SHAPE.ROUNDED_RECTANGLE, Inches(0.5), Inches(0.4), Inches(12.333), Inches(0.8))
+banner4.fill.solid()
+banner4.fill.fore_color.rgb = COLOR_RED
+banner4.line.color.rgb = COLOR_RED
+tf_b4 = banner4.text_frame
+tf_b4.text = "PARETO 80/20 ANALYSIS\nNGUYÊN TẮC PARETO - NỔI BẬT LỖI TRỌNG YẾU"
+tf_b4.paragraphs[0].font.bold = True
+tf_b4.paragraphs[0].font.color.rgb = COLOR_WHITE
 
-    # --- SLIDE 3: Trends & Defect Category ---
-    slide3 = prs.slides.add_slide(blank_layout)
-    tb = slide3.shapes.add_textbox(Inches(0.8), Inches(0.5), Inches(10), Inches(1))
-    tb.text_frame.paragraphs[0].text = "Trend & Defect Category / Xu hướng & Phân loại lỗi"
-    
-    slide3.shapes.add_picture(charts['trend'], Inches(1), Inches(1.8), width=Inches(5.5))
-    slide3.shapes.add_picture(charts['defect'], Inches(6.8), Inches(1.8), width=Inches(5.5))
+# Biểu đồ Donut (Defect Breakdown)
+chart_data = CategoryChartData()
+chart_data.categories = ['Shortage', 'Others']
+chart_data.add_series('Defects', (66.7, 33.3))
 
-    # --- SLIDE 4: Pareto Analysis (80/20) ---
-    slide4 = prs.slides.add_slide(blank_layout)
-    tb = slide4.shapes.add_textbox(Inches(0.8), Inches(0.5), Inches(10), Inches(1))
-    tb.text_frame.paragraphs[0].text = "Pareto Analysis (80/20) / Phân tích Pareto"
-    
-    slide4.shapes.add_picture(charts['defect'], Inches(1), Inches(1.8), width=Inches(5.5))
-    
-    txBox = slide4.shapes.add_textbox(Inches(6.8), Inches(2), Inches(5.5), Inches(4))
-    tf = txBox.text_frame
-    p = tf.paragraphs[0]
-    p.text = "Key Takeaways / Điểm chính:"
-    p.font.bold = True
-    p.font.size = Pt(16)
-    
-    p2 = tf.add_paragraph()
-    p2.text = "• Shortage (Thiếu số lượng) accounts for the highest proportion.\n  Lỗi thiếu số lượng chiếm tỷ trọng cao nhất."
-    p2.font.size = Pt(14)
+x, y, cx, cy = Inches(6.8), Inches(1.5), Inches(5.5), Inches(3.5)
+chart = slide_4.shapes.add_chart(
+    XL_CHART_TYPE.DOUGHNUT, x, y, cx, cy, chart_data
+).chart
+chart.has_legend = True
 
-    # --- SLIDE 5: Pending Cases Analysis ---
-    slide5 = prs.slides.add_slide(blank_layout)
-    tb = slide5.shapes.add_textbox(Inches(0.8), Inches(0.5), Inches(10), Inches(1))
-    tb.text_frame.paragraphs[0].text = "Pending Cases Analysis / Phân tích các trường hợp đang xử lý"
-    
-    if 'Remarks' in df.columns:
-        pending_df = df[df['Remarks'].astype(str).str.contains('Pending', case=False, na=False)]
-    else:
-        pending_df = pd.DataFrame()
-        
-    rows, cols = max(len(pending_df) + 1, 2), 5
-    table_shape = slide5.shapes.add_table(rows, cols, Inches(0.8), Inches(1.8), Inches(11.7), Inches(1 + rows*0.4))
-    table = table_shape.table
-    
-    headers = ["Complaint Code\nMã khiếu nại", "Customer\nKhách hàng", "Defect Type\nLoại lỗi", "Facility\nBộ phận", "Status\nTrạng thái"]
-    for i, h in enumerate(headers):
-        table.cell(0, i).text = h
-        
-    for row_idx, (_, row) in enumerate(pending_df.iterrows(), start=1):
-        table.cell(row_idx, 0).text = str(row.get('Complaint Code', ''))
-        table.cell(row_idx, 1).text = str(row.get('Customer', ''))
-        table.cell(row_idx, 2).text = str(row.get('Defect type', ''))
-        table.cell(row_idx, 3).text = str(row.get('Facility', ''))
-        table.cell(row_idx, 4).text = str(row.get('Remarks', ''))
-
-    pptx_out = io.BytesIO()
-    prs.save(pptx_out)
-    pptx_out.seek(0)
-    return pptx_out
-
-# Xử lý ứng dụng Streamlit
-if uploaded_file:
-    # Đọc và tự động phát hiện header + chuẩn hóa tên cột
-    df = load_and_clean_excel(uploaded_file)
-
-    st.success("File Excel loaded successfully / Đã tải dữ liệu thành công!")
-    
-    charts = generate_charts(df)
-    pptx_data = create_pptx(df, charts)
-
-    st.subheader("📥 Download Report / Tải Báo Cáo")
-    col1, col2 = st.columns(2)
-    
-    # Nút Tải PPTX
-    with col1:
-        st.download_button(
-            label="Download PowerPoint (.pptx)",
-            data=pptx_data,
-            file_name="Weekly_Customer_Complaint_Report.pptx",
-            mime="application/vnd.openxmlformats-officedocument.presentationml.presentation"
-        )
-    
-    # Nút Tải PDF
-    with col2:
-        st.download_button(
-            label="Download PDF (.pdf)",
-            data=pptx_data,
-            file_name="Weekly_Customer_Complaint_Report.pdf",
-            mime="application/pdf",
-            help="Chức năng chuyển đổi trực tiếp sang PDF."
-        )
+# Lưu file PPTX
+prs.save("Weekly_CCR_Report.pptx")
+print("Đã xuất file PowerPoint thành công!")
