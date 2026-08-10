@@ -24,8 +24,12 @@ def generate_charts(df):
     
     # Biểu đồ Trend (Slide 3)
     fig, ax = plt.subplots(figsize=(5, 3))
-    df['Date'] = pd.to_datetime(df['Date'])
-    weekly_counts = df.groupby(df['Date'].dt.isocalendar().week).size()
+    
+    # Ép kiểu datetime an toàn hơn (bỏ qua dòng trống nếu có)
+    df['Date'] = pd.to_datetime(df['Date'], errors='coerce')
+    df_clean = df.dropna(subset=['Date'])
+    
+    weekly_counts = df_clean.groupby(df_clean['Date'].dt.isocalendar().week).size()
     
     ax.plot([f"W{w}" for w in weekly_counts.index], weekly_counts.values, marker='o', color='#1e3d59', linewidth=2)
     ax.set_title("Weekly Complaint Trend", fontsize=10)
@@ -168,10 +172,11 @@ def create_pptx(df, charts):
 
 # Xử lý ứng dụng Streamlit
 if uploaded_file:
-    # --- CHỈ SỬA 2 DÒNG NÀY ĐỂ SỬA LỖI KEYERROR 'DATE' ---
-    df = pd.read_excel(uploaded_file, header=2)  # Đọc từ dòng 3 (nơi chứa tên cột thực tế)
-    df.columns = [str(col).split('\n')[0].strip() for col in df.columns]  # Biến 'Date\nNgày' thành 'Date'
-    # ----------------------------------------------------
+    # 1. Đọc từ dòng 3 (header=2) để bỏ qua tiêu đề lớn trang trí
+    df = pd.read_excel(uploaded_file, header=2)
+    
+    # 2. Loại bỏ phần tiếng Việt phía sau dấu \n để lấy tên cột tiếng Anh đúng chuẩn (VD: 'Date\nNgày' -> 'Date')
+    df.columns = [str(col).split('\n')[0].strip() for col in df.columns]
 
     st.success("File Excel loaded successfully / Đã tải dữ liệu thành công!")
     
